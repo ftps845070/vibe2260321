@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<!--
+Created using JS Bin
+http://jsbin.com
+
+Copyright (c) 2026 by anonymous (http://jsbin.com/pegogikuwe/1/edit)
+
+Released under the MIT license: http://jsbin.mit-license.org
+-->
+<meta name="robots" content="noindex">
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 科技沙漏碼錶 - 倒數功能版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'JetBrains+Mono', monospace; }
+        .glass-panel { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .neon-cyan { color: #22d3ee; text-shadow: 0 0 10px #22d3ee; }
+        .neon-red { color: #f43f5e; text-shadow: 0 0 15px #f43f5e; }
+        canvas { filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.3)); }
+        
+        @keyframes pulse-red {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .animate-pulse-red { animation: pulse-red 1s infinite; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="max-w-md w-full glass-panel rounded-3xl p-8 flex flex-col items-center">
+        <div class="flex justify-between w-full mb-4 items-center">
+            <h1 class="text-xs uppercase tracking-[0.2em] text-cyan-500 font-bold">Neural Hourglass v4.0</h1>
+            <span id="modeBadge" class="px-2 py-1 rounded bg-cyan-900/50 text-[10px] text-cyan-300 border border-cyan-500/30">碼錶模式</span>
+        </div>
+
+        <!-- Canvas 沙漏繪製區 -->
+        <div class="relative mb-6">
+            <canvas id="hourglassCanvas" width="200" height="280"></canvas>
+            <!-- 時間文字 -->
+            <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <div id="display" class="text-3xl font-bold neon-cyan mt-4">00:00.00</div>
+                <div id="ms-display" class="text-xs text-cyan-400 opacity-60">000</div>
+            </div>
+        </div>
+
+        <!-- 主控制區 -->
+        <div class="grid grid-cols-2 gap-4 w-full mb-4">
+            <button id="mainBtn" class="py-4 rounded-xl font-bold bg-cyan-600 hover:bg-cyan-500 text-white transition-all active:scale-95 shadow-lg shadow-cyan-900/20">開始</button>
+            <button id="resetBtn" disabled class="py-4 rounded-xl font-bold bg-slate-800 text-slate-500 cursor-not-allowed opacity-50 transition-all">重設</button>
+        </div>
+
+        <!-- 模式切換區 -->
+        <div class="flex gap-2 w-full mb-6">
+            <button id="modeStopwatch" class="flex-1 py-2 text-[10px] rounded-lg border border-cyan-500/50 bg-cyan-500/20 text-cyan-300 font-bold">一般碼錶</button>
+            <button id="modeCountdown" class="flex-1 py-2 text-[10px] rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold hover:border-cyan-500/30">1分鐘倒數</button>
+        </div>
+
+        <!-- 紀錄列表 -->
+        <div class="w-full h-24 overflow-y-auto rounded-xl bg-black/30 p-4 text-[10px]">
+            <ul id="laps" class="space-y-2">
+                <li class="text-center text-slate-600 mt-4" id="noData">SYSTEM READY</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('hourglassCanvas');
+        const ctx = canvas.getContext('2d');
+        const mainBtn = document.getElementById('mainBtn');
+        const resetBtn = document.getElementById('resetBtn');
+        const modeStopwatch = document.getElementById('modeStopwatch');
+        const modeCountdown = document.getElementById('modeCountdown');
+        const modeBadge = document.getElementById('modeBadge');
+        const display = document.getElementById('display');
+        const msDisplay = document.getElementById('ms-display');
+        const lapsList = document.getElementById('laps');
+        
+        let status = "STOPPED"; // STOPPED, RUNNING, PAUSED, FINISHED
+        let mode = "STOPWATCH"; // STOPWATCH, COUNTDOWN
+        let startTime, elapsedTime = 0, timerInterval;
+        let particles = [];
+        
+        const COUNTDOWN_TIME = 60000; // 1分鐘倒數
+        const CYCLE_TIME = 60000; // 碼錶模式下沙漏循環一次的時間
+
+        // --- Canvas 繪製邏輯 ---
+        function drawHourglass() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            
+            // 計算目前沙子的填充比例
+            let fillRatio;
+            if (mode === "COUNTDOWN") {
+                fillRatio = elapsedTime / COUNTDOWN_TIME;
+                if (fillRatio > 1) fillRatio = 1;
+            } else {
+                fillRatio = (elapsedTime % CYCLE_TIME) / CYCLE_TIME;
+                if (elapsedTime > 0 && elapsedTime % CYCLE_TIME === 0) fillRatio = 1;
+            }
+
+            // 1. 外殼
+            ctx.strokeStyle = status === "FINISHED" ? '#f43f5e' : '#334155';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(cx - 50, 30); ctx.lineTo(cx + 50, 30);
+            ctx.lineTo(cx + 50, 50); ctx.quadraticCurveTo(cx + 50, cy - 10, cx + 5, cy);
+            ctx.quadraticCurveTo(cx + 50, cy + 10, cx + 50, 230);
+            ctx.lineTo(cx - 50, 230); ctx.lineTo(cx - 50, 210);
+            ctx.quadraticCurveTo(cx - 50, cy + 10, cx - 5, cy);
+            ctx.quadraticCurveTo(cx - 50, cy - 10, cx - 50, 50);
+            ctx.closePath();
+            ctx.stroke();
+
+            // 2. 支架
+            ctx.fillStyle = status === "FINISHED" ? '#991b1b' : '#475569';
+            ctx.roundRect(cx - 65, 20, 130, 10, 5);
+            ctx.roundRect(cx - 65, 230, 130, 10, 5);
+            ctx.fill();
+
+            // 3. 上方沙池
+            ctx.fillStyle = status === "FINISHED" ? 'transparent' : 'rgba(34, 211, 238, 0.4)';
+            const topSandHeight = 70 * (1 - fillRatio);
+            if (topSandHeight > 2) {
+                ctx.beginPath();
+                ctx.moveTo(cx - 45, cy - 10 - topSandHeight);
+                ctx.lineTo(cx + 45, cy - 10 - topSandHeight);
+                ctx.quadraticCurveTo(cx + 45, cy - 10, cx + 2, cy - 2);
+                ctx.lineTo(cx - 2, cy - 2);
+                ctx.quadraticCurveTo(cx - 45, cy - 10, cx - 45, cy - 10 - topSandHeight);
+                ctx.fill();
+            }
+
+            // 4. 下方沙池
+            ctx.fillStyle = status === "FINISHED" ? 'rgba(244, 63, 94, 0.7)' : 'rgba(34, 211, 238, 0.7)';
+            const bottomSandMaxH = 80;
+            const currentBottomH = bottomSandMaxH * fillRatio;
+            const bottomY = 230;
+
+            if (currentBottomH > 0) {
+                ctx.beginPath();
+                ctx.moveTo(cx - 48, bottomY);
+                ctx.lineTo(cx + 48, bottomY);
+                ctx.lineTo(cx + 48, bottomY - currentBottomH * 0.5);
+                ctx.quadraticCurveTo(cx, bottomY - currentBottomH - 5, cx - 48, bottomY - currentBottomH * 0.5);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // 5. 流沙粒子
+            if (status === "RUNNING") {
+                if (Math.random() > 0.1) {
+                    particles.push({
+                        x: cx + (Math.random() * 2 - 1),
+                        y: cy,
+                        vy: 3 + Math.random() * 2,
+                        size: 1 + Math.random()
+                    });
+                }
+            }
+
+            ctx.fillStyle = status === "FINISHED" ? '#f43f5e' : '#22d3ee';
+            const hitLevel = bottomY - currentBottomH;
+
+            for (let i = particles.length - 1; i >= 0; i--) {
+                let p = particles[i];
+                if (status === "RUNNING") p.y += p.vy;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                if (p.y >= hitLevel) particles.splice(i, 1);
+            }
+
+            // 6. 流沙細線
+            if (status === "RUNNING") {
+                ctx.strokeStyle = '#22d3ee';
+                ctx.setLineDash([2, 4]);
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx, hitLevel);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            requestAnimationFrame(drawHourglass);
+        }
+
+        // --- 核心邏輯 ---
+        function formatTime(ms) {
+            let totalMs = ms;
+            if (mode === "COUNTDOWN") {
+                totalMs = COUNTDOWN_TIME - ms;
+                if (totalMs <= 0) totalMs = 0;
+            }
+            let s = Math.floor(totalMs / 1000);
+            let m = Math.floor(s / 60);
+            return {
+                mm: String(m % 60).padStart(2, '0'),
+                ss: String(s % 60).padStart(2, '0'),
+                ms: String(totalMs % 1000).padStart(3, '0')
+            };
+        }
+
+        function updateUI() {
+            const time = formatTime(elapsedTime);
+            display.innerText = `${time.mm}:${time.ss}`;
+            msDisplay.innerText = time.ms;
+
+            // 樣式變更
+            if (status === "RUNNING") {
+                mainBtn.innerText = "暫停";
+                mainBtn.className = "py-4 rounded-xl font-bold bg-amber-500 text-white w-full transition-all active:scale-95";
+                resetBtn.disabled = false;
+                resetBtn.className = "py-4 rounded-xl font-bold bg-slate-700 text-white w-full transition-all";
+                display.classList.remove('neon-red', 'animate-pulse-red');
+                display.classList.add('neon-cyan');
+            } else if (status === "PAUSED") {
+                mainBtn.innerText = "繼續";
+                mainBtn.className = "py-4 rounded-xl font-bold bg-emerald-600 text-white w-full transition-all";
+            } else if (status === "FINISHED") {
+                mainBtn.innerText = "開始";
+                mainBtn.className = "py-4 rounded-xl font-bold bg-slate-800 text-slate-500 w-full cursor-not-allowed";
+                display.classList.remove('neon-cyan');
+                display.classList.add('neon-red', 'animate-pulse-red');
+            } else {
+                mainBtn.innerText = "開始";
+                mainBtn.className = "py-4 rounded-xl font-bold bg-cyan-600 text-white w-full transition-all";
+                resetBtn.disabled = true;
+                resetBtn.className = "py-4 rounded-xl font-bold bg-slate-800 text-slate-500 cursor-not-allowed opacity-50 w-full";
+                display.classList.remove('neon-red', 'animate-pulse-red');
+                display.classList.add('neon-cyan');
+            }
+        }
+
+        function startTimer() {
+            status = "RUNNING";
+            startTime = Date.now() - elapsedTime;
+            timerInterval = setInterval(() => {
+                elapsedTime = Date.now() - startTime;
+                
+                if (mode === "COUNTDOWN" && elapsedTime >= COUNTDOWN_TIME) {
+                    elapsedTime = COUNTDOWN_TIME;
+                    status = "FINISHED";
+                    clearInterval(timerInterval);
+                    addLog("倒數結束");
+                }
+                updateUI();
+            }, 10);
+            updateUI();
+        }
+
+        function addLog(msg) {
+            const time = formatTime(elapsedTime);
+            const li = document.createElement('li');
+            li.className = "flex justify-between border-b border-slate-800 pb-1 text-cyan-300";
+            li.innerHTML = `<span>${msg}</span><span>${time.mm}:${time.ss}.${time.ms}</span>`;
+            document.getElementById('noData').style.display = 'none';
+            lapsList.prepend(li);
+        }
+
+        // --- 事件監聽 ---
+        mainBtn.addEventListener('click', () => {
+            if (status === "FINISHED") return;
+            if (status !== "RUNNING") startTimer();
+            else {
+                status = "PAUSED";
+                clearInterval(timerInterval);
+                updateUI();
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            status = "STOPPED";
+            clearInterval(timerInterval);
+            elapsedTime = 0;
+            particles = [];
+            updateUI();
+        });
+
+        modeStopwatch.addEventListener('click', () => {
+            if (status !== "STOPPED") return;
+            mode = "STOPWATCH";
+            modeBadge.innerText = "碼錶模式";
+            modeStopwatch.className = "flex-1 py-2 text-[10px] rounded-lg border border-cyan-500/50 bg-cyan-500/20 text-cyan-300 font-bold";
+            modeCountdown.className = "flex-1 py-2 text-[10px] rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold";
+            updateUI();
+        });
+
+        modeCountdown.addEventListener('click', () => {
+            if (status !== "STOPPED") return;
+            mode = "COUNTDOWN";
+            modeBadge.innerText = "倒數模式";
+            modeCountdown.className = "flex-1 py-2 text-[10px] rounded-lg border border-cyan-500/50 bg-cyan-500/20 text-cyan-300 font-bold";
+            modeStopwatch.className = "flex-1 py-2 text-[10px] rounded-lg border border-slate-700 bg-slate-800/50 text-slate-400 font-bold";
+            updateUI();
+        });
+
+        drawHourglass();
+    </script>
+</body>
+</html>
