@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>無邊記 Freeform Canvas</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+    
+    * {
+      font-family: 'Plus Jakarta Sans', 'Noto Sans TC', system-ui, -apple-system, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: none;
+    }
+    
+    /* Subtle dot grid pattern */
+    .infinite-grid {
+      background-size: 28px 28px;
+      background-image: radial-gradient(circle, #cbd5e1 1.2px, transparent 1.2px);
+    }
+    .dark .infinite-grid {
+      background-image: radial-gradient(circle, #475569 1.2px, transparent 1.2px);
+    }
+
+    /* Glassmorphism Apple styling */
+    .apple-glass {
+      background: rgba(255, 255, 255, 0.82);
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      box-shadow: 0 16px 36px -8px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+    }
+
+    /* Note paper shadow */
+    .note-shadow {
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 6px 10px -4px rgba(0, 0, 0, 0.04);
+    }
+    
+    .note-selected {
+      outline: 2.5px solid #0071e3 !important;
+      outline-offset: 2px;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 9999px;
+    }
+
+    /* Editable text styling inside elements */
+    [contenteditable="true"]:empty:before {
+      content: attr(data-placeholder);
+      color: #94a3b8;
+      pointer-events: none;
+      display: block;
+    }
+    [contenteditable="true"] {
+      user-select: text;
+      -webkit-user-select: text;
+    }
+  </style>
+</head>
+<body class="overflow-hidden bg-[#fbfbfd] text-slate-800 antialiased h-screen w-screen flex flex-col">
+
+  <!-- Top Navigation & Controls -->
+  <header class="absolute top-4 left-4 right-4 z-40 flex items-center justify-between pointer-events-none">
+    <!-- Left: Title & File status -->
+    <div class="pointer-events-auto flex items-center gap-3 apple-glass px-4 py-2.5 rounded-2xl shadow-sm">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-amber-400 via-rose-500 to-indigo-600 flex items-center justify-center text-white shadow-sm">
+        <i data-lucide="layout-grid" class="w-4 h-4"></i>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <input id="board-title" type="text" value="無標題白板" class="font-semibold text-sm bg-transparent outline-none focus:border-b border-blue-500 text-slate-900 w-32 md:w-48" />
+          <span class="text-[10px] font-medium bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded-full">已同步</span>
+        </div>
+        <p class="text-[11px] text-slate-400">無限靈感自由畫布</p>
+      </div>
+    </div>
+
+    <!-- Center: Main Tool Dock -->
+    <div class="pointer-events-auto apple-glass px-3 py-2 rounded-2xl flex items-center gap-1.5 transition-all duration-200">
+      <button id="tool-select" class="tool-btn active p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-blue-600" title="選取工具 (V)">
+        <i data-lucide="pointer" class="w-5 h-5"></i>
+      </button>
+      <button id="tool-hand" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700" title="平移畫布 (H 或 空白鍵)">
+        <i data-lucide="hand" class="w-5 h-5"></i>
+      </button>
+      
+      <div class="h-6 w-[1px] bg-slate-200 mx-1"></div>
+
+      <button id="tool-note" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700 relative group" title="便條紙 (S)">
+        <i data-lucide="sticky-note" class="w-5 h-5 text-amber-500"></i>
+      </button>
+      
+      <button id="tool-text" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700" title="文字 (T)">
+        <i data-lucide="type" class="w-5 h-5"></i>
+      </button>
+
+      <button id="tool-shape" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700 relative" title="圖形 (R)">
+        <i data-lucide="shapes" class="w-5 h-5 text-indigo-500"></i>
+      </button>
+
+      <button id="tool-pen" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700" title="畫筆塗鴉 (P)">
+        <i data-lucide="pen-tool" class="w-5 h-5 text-emerald-600"></i>
+      </button>
+
+      <button id="tool-eraser" class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700" title="橡皮擦 (E)">
+        <i data-lucide="eraser" class="w-5 h-5 text-rose-500"></i>
+      </button>
+
+      <div class="h-6 w-[1px] bg-slate-200 mx-1"></div>
+
+      <!-- Add Image Button -->
+      <label class="tool-btn p-2.5 rounded-xl hover:bg-slate-100/80 transition-all text-slate-700 cursor-pointer" title="加入圖片">
+        <i data-lucide="image" class="w-5 h-5 text-sky-500"></i>
+        <input id="image-upload" type="file" accept="image/*" class="hidden" />
+      </label>
+    </div>
+
+    <!-- Right: History, Zoom & Export -->
+    <div class="pointer-events-auto flex items-center gap-2 apple-glass px-3 py-2 rounded-2xl">
+      <button id="btn-undo" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition disabled:opacity-30" title="復原 (Ctrl+Z)">
+        <i data-lucide="undo-2" class="w-4 h-4"></i>
+      </button>
+      <button id="btn-redo" class="p-2 rounded-xl text-slate-600 hover:bg-slate-100 transition disabled:opacity-30" title="重做 (Ctrl+Y)">
+        <i data-lucide="redo-2" class="w-4 h-4"></i>
+      </button>
+      <div class="h-5 w-[1px] bg-slate-200 mx-0.5"></div>
+      <button id="btn-clear" class="p-2 rounded-xl text-rose-500 hover:bg-rose-50 transition" title="清空畫布">
+        <i data-lucide="trash-2" class="w-4 h-4"></i>
+      </button>
+      <button id="btn-export" class="flex items-center gap-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-medium px-3 py-2 rounded-xl transition shadow-sm" title="匯出圖片">
+        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+        <span class="hidden sm:inline">匯出</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Sub-toolbar for Pen / Shapes / Note Colors -->
+  <div id="sub-toolbar" class="fixed top-20 left-1/2 -translate-x-1/2 z-40 apple-glass px-4 py-2.5 rounded-2xl flex items-center gap-4 transition-all duration-200 opacity-0 pointer-events-none scale-95">
+    <!-- Color Swatches -->
+    <div id="color-picker-group" class="flex items-center gap-2">
+      <button data-color="#fef08a" data-stroke="#1e293b" class="color-swatch w-6 h-6 rounded-full bg-yellow-200 border-2 border-white shadow-sm ring-2 ring-blue-500 transition-transform hover:scale-110"></button>
+      <button data-color="#fed7aa" data-stroke="#f97316" class="color-swatch w-6 h-6 rounded-full bg-orange-200 border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+      <button data-color="#fecdd3" data-stroke="#f43f5e" class="color-swatch w-6 h-6 rounded-full bg-rose-200 border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+      <button data-color="#bbf7d0" data-stroke="#10b981" class="color-swatch w-6 h-6 rounded-full bg-emerald-200 border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+      <button data-color="#bae6fd" data-stroke="#0ea5e9" class="color-swatch w-6 h-6 rounded-full bg-sky-200 border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+      <button data-color="#e9d5ff" data-stroke="#8b5cf6" class="color-swatch w-6 h-6 rounded-full bg-purple-200 border-2 border-white shadow-sm transition-transform hover:scale-110"></button>
+    </div>
+
+    <!-- Shape Type Selector (Only visible when shape tool is active) -->
+    <div id="shape-picker-group" class="hidden items-center gap-1.5 border-l border-slate-200 pl-3">
+      <button data-shape="rect" class="shape-type-btn p-1.5 rounded-lg bg-blue-50 text-blue-600 hover:bg-slate-100 transition" title="矩形">
+        <i data-lucide="square" class="w-4 h-4"></i>
+      </button>
+      <button data-shape="circle" class="shape-type-btn p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition" title="圓形">
+        <i data-lucide="circle" class="w-4 h-4"></i>
+      </button>
+      <button data-shape="pill" class="shape-type-btn p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition" title="膠囊形">
+        <i data-lucide="rectangle-horizontal" class="w-4 h-4"></i>
+      </button>
+    </div>
+
+    <!-- Pen Stroke Size Selector (Only visible when pen/eraser is active) -->
+    <div id="stroke-picker-group" class="hidden items-center gap-2 border-l border-slate-200 pl-3">
+      <span class="text-xs text-slate-500">粗細</span>
+      <input id="pen-width" type="range" min="2" max="24" value="4" class="w-20 accent-blue-600 cursor-pointer" />
+    </div>
+
+    <!-- Delete Selected Item Button -->
+    <div id="item-actions-group" class="hidden items-center gap-1.5 border-l border-slate-200 pl-3">
+      <button id="btn-bring-front" class="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition text-xs flex items-center gap-1" title="移至最前">
+        <i data-lucide="bring-to-front" class="w-4 h-4"></i>
+      </button>
+      <button id="btn-duplicate" class="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition text-xs flex items-center gap-1" title="複製物件">
+        <i data-lucide="copy" class="w-4 h-4"></i>
+      </button>
+      <button id="btn-delete-item" class="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 transition text-xs flex items-center gap-1" title="刪除物件 (Del)">
+        <i data-lucide="trash" class="w-4 h-4"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Infinite Viewport Container -->
+  <main id="viewport" class="relative flex-1 w-full h-full overflow-hidden cursor-default infinite-grid">
+    <!-- World Transform Container -->
+    <div id="world" class="absolute top-0 left-0 origin-top-left will-change-transform" style="width: 6000px; height: 6000px;">
+      <!-- Freehand Drawing Canvas Layer -->
+      <canvas id="drawing-canvas" width="6000" height="6000" class="absolute inset-0 pointer-events-none z-10"></canvas>
+      <!-- DOM Elements Layer (Sticky Notes, Shapes, Text, Images) -->
+      <div id="elements-layer" class="absolute inset-0 z-20 pointer-events-auto"></div>
+    </div>
+  </main>
+
+  <!-- Bottom Left: Quick Tips / Coordinates -->
+  <div class="fixed bottom-4 left-4 z-40 pointer-events-none hidden md:flex items-center gap-2 apple-glass px-3.5 py-2 rounded-2xl text-xs text-slate-500">
+    <span class="flex items-center gap-1"><kbd class="px-1.5 py-0.5 bg-slate-100 rounded text-[10px] font-semibold text-slate-700 border">空白鍵</kbd> + 拖曳平移</span>
+    <span>•</span>
+    <span>滾輪縮放</span>
+    <span>•</span>
+    <span>雙擊文字編輯</span>
+  </div>
+
+  <!-- Bottom Right: Zoom & Reset View Controls -->
+  <div class="fixed bottom-4 right-4 z-40 flex items-center gap-1.5 apple-glass px-2.5 py-1.5 rounded-2xl">
+    <button id="zoom-out" class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 transition" title="縮小">
+      <i data-lucide="minus" class="w-4 h-4"></i>
+    </button>
+    <button id="zoom-reset" class="px-2 py-1 rounded-lg hover:bg-slate-100 text-xs font-semibold text-slate-700 min-w-[52px] text-center transition" title="重置視角 (100%)">
+      100%
+    </button>
+    <button id="zoom-in" class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 transition" title="放大">
+      <i data-lucide="plus" class="w-4 h-4"></i>
+    </button>
+    <div class="h-4 w-[1px] bg-slate-200 mx-0.5"></div>
+    <button id="btn-center" class="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 transition" title="回到中心">
+      <i data-lucide="locate-fixed" class="w-4 h-4"></i>
+    </button>
+  </div>
+
+  <!-- Custom Confirmation Modal (Replacing forbidden alert/confirm) -->
+  <div id="confirm-modal" class="fixed inset-0 z-50 bg-slate-900/25 backdrop-blur-xs hidden items-center justify-center p-4">
+    <div class="apple-glass bg-white/95 rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-white">
+      <h3 class="text-base font-bold text-slate-900 mb-1">確定要清空畫布嗎？</h3>
+      <p class="text-xs text-slate-500 mb-5">這將會移除所有便條紙、圖形與塗鴉，您可以稍後使用復原按鈕找回。</p>
+      <div class="flex justify-end gap-2">
+        <button id="modal-cancel" class="px-4 py-2 rounded-xl text-xs font-medium text-slate-600 hover:bg-slate-100 transition">取消</button>
+        <button id="modal-confirm" class="px-4 py-2 rounded-xl text-xs font-medium bg-rose-500 hover:bg-rose-600 text-white transition shadow-sm">確定清空</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed bottom-16 left-1/2 -translate-x-1/2 z-50 apple-glass px-4 py-2 rounded-full text-xs font-medium text-slate-800 shadow-lg transition-all duration-300 opacity-0 translate-y-2 pointer-events-none">
+    已匯出畫布快照
+  </div>
+
+  <script>
+    // Initialize Lucide icons
+    lucide.createIcons();
+
+    // --- Core Application State ---
+    const WORLD_OFFSET = 2500; // Center point inside the 6000x6000 world
+    const state = {
+      tool: 'select', // 'select', 'hand', 'note', 'text', 'shape', 'pen', 'eraser'
+      panX: -WORLD_OFFSET + window.innerWidth / 2,
+      panY: -WORLD_OFFSET + window.innerHeight / 2,
+      scale: 1,
+      isPanning: false,
+      isSpacePressed: false,
+      startPanX: 0,
+      startPanY: 0,
+      
+      // Active style settings
+      activeFill: '#fef08a',
+      activeStroke: '#1e293b',
+      activeShape: 'rect',
+      penWidth: 4,
+
+      // Canvas Items & Selection
+      items: [],
+      selectedId: null,
+      highestZ: 10,
+
+      // Drawing State
+      isDrawing: false,
+      lastDrawPt: null,
+
+      // Undo/Redo stacks
+      history: [],
+      historyIndex: -1
+    };
+
+    // DOM References
+    const viewport = document.getElementById('viewport');
+    const world = document.getElementById('world');
+    const elementsLayer = document.getElementById('elements-layer');
+    const drawCanvas = document.getElementById('drawing-canvas');
+    const ctx = drawCanvas.getContext('2d');
+    const subToolbar = document.getElementById('sub-toolbar');
+    const zoomResetBtn = document.getElementById('zoom-reset');
+
+    // Configure 2D Context
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    // --- Helper Functions ---
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.remove('opacity-0', 'translate-y-2');
+      setTimeout(() => toast.classList.add('opacity-0', 'translate-y-2'), 2400);
+    }
+
+    function screenToWorld(clientX, clientY) {
+      const rect = viewport.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left - state.panX) / state.scale,
+        y: (clientY - rect.top - state.panY) / state.scale
+      };
+    }
+
+    function updateWorldTransform() {
+      world.style.transform = `translate3d(${state.panX}px, ${state.panY}px, 0) scale(${state.scale})`;
+      const bgSize = 28 * state.scale;
+      viewport.style.backgroundSize = `${bgSize}px ${bgSize}px`;
+      viewport.style.backgroundPosition = `${state.panX}px ${state.panY}px`;
+      zoomResetBtn.textContent = `${Math.round(state.scale * 100)}%`;
+    }
+
+    function saveHistory() {
+      // Remove future states if we branched
+      if (state.historyIndex < state.history.length - 1) {
+        state.history = state.history.slice(0, state.historyIndex + 1);
+      }
+      // Capture items deep copy + canvas data URL
+      const snapshot = {
+        items: JSON.parse(JSON.stringify(state.items)),
+        canvasData: drawCanvas.toDataURL()
+      };
+      state.history.push(snapshot);
+      if (state.history.length > 25) state.history.shift();
+      else state.historyIndex++;
+      updateHistoryButtons();
+    }
+
+    function restoreSnapshot(snapshot) {
+      state.items = JSON.parse(JSON.stringify(snapshot.items));
+      state.selectedId = null;
+      renderAllItems();
+      updateSubToolbar();
+
+      const img = new Image();
+      img.onload = () => {
+        ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+        ctx.drawImage(img, 0, 0);
+      };
+      img.src = snapshot.canvasData;
+      updateHistoryButtons();
+    }
+
+    function updateHistoryButtons() {
+      document.getElementById('btn-undo').disabled = state.historyIndex <= 0;
+      document.getElementById('btn-redo').disabled = state.historyIndex >= state.history.length - 1;
+    }
+
+    function setTool(toolName) {
+      state.tool = toolName;
+      document.querySelectorAll('.tool-btn').forEach(btn => {
+        btn.classList.remove('active', 'text-blue-600', 'bg-blue-50/90');
+        btn.classList.add('text-slate-700');
+      });
+      const activeBtn = document.getElementById(`tool-${toolName}`);
+      if (activeBtn) {
+        activeBtn.classList.add('active', 'text-blue-600', 'bg-blue-50/90');
+        activeBtn.classList.remove('text-slate-700');
+      }
+
+      // Toggle drawing canvas pointer events
+      if (toolName === 'pen' || toolName === 'eraser') {
+        drawCanvas.classList.remove('pointer-events-none');
+        drawCanvas.classList.add('pointer-events-auto');
+        viewport.style.cursor = 'crosshair';
+        selectItem(null);
+      } else {
+        drawCanvas.classList.add('pointer-events-none');
+        drawCanvas.classList.remove('pointer-events-auto');
+        viewport.style.cursor = toolName === 'hand' ? 'grab' : 'default';
+      }
+
+      updateSubToolbar();
+    }
+
+    function updateSubToolbar() {
+      const colorGroup = document.getElementById('color-picker-group');
+      const shapeGroup = document.getElementById('shape-picker-group');
+      const strokeGroup = document.getElementById('stroke-picker-group');
+      const actionsGroup = document.getElementById('item-actions-group');
+
+      const showBar = ['note', 'shape', 'pen', 'eraser'].includes(state.tool) || state.selectedId !== null;
+      if (showBar) {
+        subToolbar.classList.remove('opacity-0', 'pointer-events-none', 'scale-95');
+      } else {
+        subToolbar.classList.add('opacity-0', 'pointer-events-none', 'scale-95');
+        return;
+      }
+
+      colorGroup.classList.toggle('hidden', state.tool === 'eraser');
+      shapeGroup.classList.toggle('hidden', state.tool !== 'shape');
+      shapeGroup.classList.toggle('flex', state.tool === 'shape');
+      strokeGroup.classList.toggle('hidden', !['pen', 'eraser'].includes(state.tool));
+      strokeGroup.classList.toggle('flex', ['pen', 'eraser'].includes(state.tool));
+      actionsGroup.classList.toggle('hidden', state.selectedId === null);
+      actionsGroup.classList.toggle('flex', state.selectedId !== null);
+    }
+
+    function createItem(type, x, y, extra = {}) {
+      state.highestZ++;
+      const id = 'item_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      const item = {
+        id,
+        type, // 'note', 'text', 'shape', 'image'
+        x: Math.round(x),
+        y: Math.round(y),
+        w: extra.w || (type === 'note' ? 220 : type === 'text' ? 240 : 160),
+        h: extra.h || (type === 'note' ? 220 : type === 'text' ? 64 : 160),
+        color: extra.color || state.activeFill,
+        shapeType: extra.shapeType || state.activeShape,
+        text: extra.text !== undefined ? extra.text : '',
+        src: extra.src || null,
+        z: state.highestZ
+      };
+      state.items.push(item);
+      renderItemDOM(item);
+      selectItem(id);
+      saveHistory();
+      return item;
+    }
+
+    function renderAllItems() {
+      elementsLayer.innerHTML = '';
+      state.items.forEach(item => renderItemDOM(item));
+    }
+
+    function renderItemDOM(item) {
+      let el = document.getElementById(item.id);
+      if (!el) {
+        el = document.createElement('div');
+        el.id = item.id;
+        el.className = 'canvas-item absolute group transition-shadow duration-150 flex flex-col';
+        elementsLayer.appendChild(el);
+        setupItemEvents(el, item.id);
+      }
+
+      el.style.left = `${item.x}px`;
+      el.style.top = `${item.y}px`;
+      el.style.width = `${item.w}px`;
+      el.style.height = `${item.h}px`;
+      el.style.zIndex = item.z;
+
+      // Apply visual style per item type
+      el.innerHTML = '';
+      if (item.type === 'note') {
+        el.style.backgroundColor = item.color;
+        el.className = 'canvas-item absolute group note-shadow rounded-2xl p-5 flex flex-col transition-shadow cursor-move';
+        const header = document.createElement('div');
+        header.className = 'text-[10px] font-semibold uppercase tracking-wider text-slate-600/60 mb-1.5 flex justify-between items-center pointer-events-none';
+        header.innerHTML = '<span>MEMO</span>';
+        const content = document.createElement('div');
+        content.contentEditable = 'true';
+        content.dataset.placeholder = '輸入想法...';
+        content.className = 'flex-1 outline-none text-slate-800 font-medium text-sm leading-relaxed overflow-y-auto break-words cursor-text';
+        content.innerText = item.text;
+        content.addEventListener('input', () => { item.text = content.innerText; });
+        content.addEventListener('blur', () => saveHistory());
+        el.appendChild(header);
+        el.appendChild(content);
+      } else if (item.type === 'text') {
+        el.style.backgroundColor = 'transparent';
+        el.className = 'canvas-item absolute group p-2 flex flex-col cursor-move rounded-xl hover:ring-1 hover:ring-slate-300';
+        const content = document.createElement('div');
+        content.contentEditable = 'true';
+        content.dataset.placeholder = '輸入標題或文字...';
+        content.className = 'flex-1 outline-none text-slate-900 font-bold text-2xl leading-snug break-words cursor-text';
+        content.innerText = item.text;
+        content.addEventListener('input', () => { item.text = content.innerText; });
+        content.addEventListener('blur', () => saveHistory());
+        el.appendChild(content);
+      } else if (item.type === 'shape') {
+        const radiusClass = item.shapeType === 'circle' ? 'rounded-full' : item.shapeType === 'pill' ? 'rounded-full' : 'rounded-3xl';
+        el.style.backgroundColor = item.color;
+        el.className = `canvas-item absolute group ${radiusClass} border-2 border-slate-800/15 shadow-sm flex items-center justify-center p-4 cursor-move`;
+        const content = document.createElement('div');
+        content.contentEditable = 'true';
+        content.dataset.placeholder = '標籤';
+        content.className = 'outline-none text-center text-slate-800 font-semibold text-sm w-full break-words cursor-text';
+        content.innerText = item.text;
+        content.addEventListener('input', () => { item.text = content.innerText; });
+        content.addEventListener('blur', () => saveHistory());
+        el.appendChild(content);
+      } else if (item.type === 'image') {
+        el.className = 'canvas-item absolute group rounded-2xl overflow-hidden note-shadow border-4 border-white cursor-move bg-slate-100';
+        const img = document.createElement('img');
+        img.src = item.src;
+        img.className = 'w-full h-full object-cover pointer-events-none';
+        el.appendChild(img);
+      }
+
+      // Resize Handle (Bottom Right)
+      const resizeHandle = document.createElement('div');
+      resizeHandle.className = 'resize-handle absolute bottom-1.5 right-1.5 w-4 h-4 rounded-full bg-white border-2 border-blue-600 shadow opacity-0 group-hover:opacity-100 cursor-nwse-resize z-30';
+      el.appendChild(resizeHandle);
+
+      if (state.selectedId === item.id) {
+        el.classList.add('note-selected');
+        resizeHandle.classList.remove('opacity-0');
+      }
+    }
+
+    function selectItem(id) {
+      state.selectedId = id;
+      document.querySelectorAll('.canvas-item').forEach(el => {
+        el.classList.toggle('note-selected', el.id === id);
+      });
+      updateSubToolbar();
+    }
+
+    function setupItemEvents(el, id) {
+      let isDraggingItem = false;
+      let isResizingItem = false;
+      let startX = 0, startY = 0;
+      let origX = 0, origY = 0, origW = 0, origH = 0;
+
+      el.addEventListener('pointerdown', (e) => {
+        if (state.tool === 'hand' || state.isSpacePressed || state.tool === 'pen' || state.tool === 'eraser') return;
+        e.stopPropagation();
+
+        const item = state.items.find(i => i.id === id);
+        if (!item) return;
+
+        selectItem(id);
+
+        // If user clicked directly inside contenteditable while already focused, allow typing
+        if (e.target.isContentEditable && document.activeElement === e.target) {
+          return;
+        }
+
+        const worldPt = screenToWorld(e.clientX, e.clientY);
+        startX = worldPt.x;
+        startY = worldPt.y;
+        origX = item.x;
+        origY = item.y;
+        origW = item.w;
+        origH = item.h;
+
+        if (e.target.classList.contains('resize-handle')) {
+          isResizingItem = true;
+        } else {
+          isDraggingItem = true;
+        }
+
+        const onPointerMove = (moveEvent) => {
+          const curPt = screenToWorld(moveEvent.clientX, moveEvent.clientY);
+          const dx = curPt.x - startX;
+          const dy = curPt.y - startY;
+
+          if (isDraggingItem) {
+            item.x = Math.round(origX + dx);
+            item.y = Math.round(origY + dy);
+            el.style.left = `${item.x}px`;
+            el.style.top = `${item.y}px`;
+          } else if (isResizingItem) {
+            item.w = Math.max(90, Math.round(origW + dx));
+            item.h = Math.max(50, Math.round(origH + dy));
+            el.style.width = `${item.w}px`;
+            el.style.height = `${item.h}px`;
+          }
+        };
+
+        const onPointerUp = () => {
+          if (isDraggingItem || isResizingItem) {
+            saveHistory();
+          }
+          isDraggingItem = false;
+          isResizingItem = false;
+          window.removeEventListener('pointermove', onPointerMove);
+          window.removeEventListener('pointerup', onPointerUp);
+        };
+
+        window.addEventListener('pointermove', onPointerMove);
+        window.addEventListener('pointerup', onPointerUp);
+      });
+
+      // Double click to focus text immediately
+      el.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const editable = el.querySelector('[contenteditable="true"]');
+        if (editable) editable.focus();
+      });
+    }
+
+    // --- Viewport Panning & Item Creation ---
+    viewport.addEventListener('pointerdown', (e) => {
+      // Panning mode
+      if (state.tool === 'hand' || state.isSpacePressed || e.button === 1) {
+        state.isPanning = true;
+        state.startPanX = e.clientX - state.panX;
+        state.startPanY = e.clientY - state.panY;
+        viewport.style.cursor = 'grabbing';
+        return;
+      }
+
+      // Freehand Drawing mode
+      if (state.tool === 'pen' || state.tool === 'eraser') {
+        state.isDrawing = true;
+        state.lastDrawPt = screenToWorld(e.clientX, e.clientY);
+        return;
+      }
+
+      const pt = screenToWorld(e.clientX, e.clientY);
+
+      // Creating new items on click
+      if (state.tool === 'note') {
+        createItem('note', pt.x - 110, pt.y - 110, { text: '雙擊編輯便條紙內容 ✨' });
+        setTool('select');
+      } else if (state.tool === 'text') {
+        createItem('text', pt.x - 100, pt.y - 25, { text: '點擊輸入標題' });
+        setTool('select');
+      } else if (state.tool === 'shape') {
+        createItem('shape', pt.x - 80, pt.y - 80, { shapeType: state.activeShape, text: '概念節點' });
+        setTool('select');
+      } else if (state.tool === 'select') {
+        // Clicked empty background -> deselect
+        if (e.target === viewport || e.target === world || e.target === elementsLayer) {
+          selectItem(null);
+          // Also allow background drag to pan smoothly like Apple Freeform
+          state.isPanning = true;
+          state.startPanX = e.clientX - state.panX;
+          state.startPanY = e.clientY - state.panY;
+        }
+      }
+    });
+
+    window.addEventListener('pointermove', (e) => {
+      if (state.isPanning) {
+        state.panX = e.clientX - state.startPanX;
+        state.panY = e.clientY - state.startPanY;
+        updateWorldTransform();
+        return;
+      }
+
+      if (state.isDrawing && state.lastDrawPt) {
+        const currentPt = screenToWorld(e.clientX, e.clientY);
+        ctx.save();
+        if (state.tool === 'eraser') {
+          ctx.globalCompositeOperation = 'destination-out';
+          ctx.lineWidth = state.penWidth * 4;
+        } else {
+          ctx.globalCompositeOperation = 'source-over';
+          ctx.strokeStyle = state.activeStroke;
+          ctx.lineWidth = state.penWidth;
+        }
+        ctx.beginPath();
+        ctx.moveTo(state.lastDrawPt.x, state.lastDrawPt.y);
+        ctx.lineTo(currentPt.x, currentPt.y);
+        ctx.stroke();
+        ctx.restore();
+        state.lastDrawPt = currentPt;
+      }
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (state.isPanning) {
+        state.isPanning = false;
+        viewport.style.cursor = state.tool === 'hand' ? 'grab' : 'default';
+      }
+      if (state.isDrawing) {
+        state.isDrawing = false;
+        state.lastDrawPt = null;
+        saveHistory();
+      }
+    });
+
+    // Zoom with Mouse Wheel
+    viewport.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.08 : 0.92;
+      const newScale = Math.min(2.5, Math.max(0.25, state.scale * zoomFactor));
+
+      // Zoom towards mouse cursor
+      const rect = viewport.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      state.panX = mouseX - ((mouseX - state.panX) / state.scale) * newScale;
+      state.panY = mouseY - ((mouseY - state.panY) / state.scale) * newScale;
+      state.scale = newScale;
+      updateWorldTransform();
+    }, { passive: false });
+
+    // --- Toolbar & Control Bindings ---
+    ['select', 'hand', 'note', 'text', 'shape', 'pen', 'eraser'].forEach(t => {
+      document.getElementById(`tool-${t}`).addEventListener('click', () => setTool(t));
+    });
+
+    // Color swatch clicks
+    document.querySelectorAll('.color-swatch').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.color-swatch').forEach(b => b.classList.remove('ring-2', 'ring-blue-500'));
+        btn.classList.add('ring-2', 'ring-blue-500');
+        state.activeFill = btn.dataset.color;
+        state.activeStroke = btn.dataset.stroke;
+
+        if (state.selectedId) {
+          const item = state.items.find(i => i.id === state.selectedId);
+          if (item && (item.type === 'note' || item.type === 'shape')) {
+            item.color = state.activeFill;
+            renderItemDOM(item);
+            saveHistory();
+          }
+        }
+      });
+    });
+
+    // Shape type clicks
+    document.querySelectorAll('.shape-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.shape-type-btn').forEach(b => b.classList.remove('bg-blue-50', 'text-blue-600'));
+        btn.classList.add('bg-blue-50', 'text-blue-600');
+        state.activeShape = btn.dataset.shape;
+      });
+    });
+
+    // Pen stroke width
+    document.getElementById('pen-width').addEventListener('input', (e) => {
+      state.penWidth = parseInt(e.target.value, 10);
+    });
+
+    // Item actions (Bring to front, Duplicate, Delete)
+    document.getElementById('btn-bring-front').addEventListener('click', () => {
+      if (!state.selectedId) return;
+      const item = state.items.find(i => i.id === state.selectedId);
+      if (item) {
+        state.highestZ++;
+        item.z = state.highestZ;
+        renderItemDOM(item);
+        saveHistory();
+      }
+    });
+
+    document.getElementById('btn-duplicate').addEventListener('click', () => {
+      if (!state.selectedId) return;
+      const orig = state.items.find(i => i.id === state.selectedId);
+      if (orig) {
+        createItem(orig.type, orig.x + 28, orig.y + 28, {
+          w: orig.w,
+          h: orig.h,
+          color: orig.color,
+          shapeType: orig.shapeType,
+          text: orig.text,
+          src: orig.src
+        });
+      }
+    });
+
+    function deleteSelectedItem() {
+      if (!state.selectedId) return;
+      const el = document.getElementById(state.selectedId);
+      if (el) el.remove();
+      state.items = state.items.filter(i => i.id !== state.selectedId);
+      selectItem(null);
+      saveHistory();
+    }
+    document.getElementById('btn-delete-item').addEventListener('click', deleteSelectedItem);
+
+    // Image Upload
+    document.getElementById('image-upload').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const center = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+        createItem('image', center.x - 140, center.y - 100, {
+          w: 280,
+          h: 200,
+          src: ev.target.result
+        });
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    });
+
+    // Zoom Buttons
+    function zoomBy(factor) {
+      const newScale = Math.min(2.5, Math.max(0.25, state.scale * factor));
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      state.panX = cx - ((cx - state.panX) / state.scale) * newScale;
+      state.panY = cy - ((cy - state.panY) / state.scale) * newScale;
+      state.scale = newScale;
+      updateWorldTransform();
+    }
+    document.getElementById('zoom-in').addEventListener('click', () => zoomBy(1.2));
+    document.getElementById('zoom-out').addEventListener('click', () => zoomBy(0.8));
+    document.getElementById('zoom-reset').addEventListener('click', () => {
+      state.scale = 1;
+      updateWorldTransform();
+    });
+    document.getElementById('btn-center').addEventListener('click', () => {
+      state.scale = 1;
+      state.panX = -WORLD_OFFSET + window.innerWidth / 2;
+      state.panY = -WORLD_OFFSET + window.innerHeight / 2;
+      updateWorldTransform();
+    });
+
+    // Undo / Redo
+    document.getElementById('btn-undo').addEventListener('click', () => {
+      if (state.historyIndex > 0) {
+        state.historyIndex--;
+        restoreSnapshot(state.history[state.historyIndex]);
+      }
+    });
+    document.getElementById('btn-redo').addEventListener('click', () => {
+      if (state.historyIndex < state.history.length - 1) {
+        state.historyIndex++;
+        restoreSnapshot(state.history[state.historyIndex]);
+      }
+    });
+
+    // Clear Board Modal
+    const confirmModal = document.getElementById('confirm-modal');
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      confirmModal.classList.remove('hidden');
+      confirmModal.classList.add('flex');
+    });
+    document.getElementById('modal-cancel').addEventListener('click', () => {
+      confirmModal.classList.add('hidden');
+      confirmModal.classList.remove('flex');
+    });
+    document.getElementById('modal-confirm').addEventListener('click', () => {
+      state.items = [];
+      selectItem(null);
+      renderAllItems();
+      ctx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      saveHistory();
+      confirmModal.classList.add('hidden');
+      confirmModal.classList.remove('flex');
+      showToast('已清空所有畫布內容');
+    });
+
+    // Export Snapshot to PNG
+    document.getElementById('btn-export').addEventListener('click', () => {
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = 1600;
+      outCanvas.height = 1000;
+      const oCtx = outCanvas.getContext('2d');
+
+      // Background fill
+      oCtx.fillStyle = '#fbfbfd';
+      oCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+
+      // Copy central region of drawing canvas
+      const startX = WORLD_OFFSET - 800;
+      const startY = WORLD_OFFSET - 500;
+      oCtx.drawImage(drawCanvas, startX, startY, 1600, 1000, 0, 0, 1600, 1000);
+
+      // Render items onto export canvas
+      state.items.forEach(item => {
+        const rx = item.x - startX;
+        const ry = item.y - startY;
+        if (item.type === 'note' || item.type === 'shape') {
+          oCtx.fillStyle = item.color;
+          oCtx.beginPath();
+          oCtx.roundRect(rx, ry, item.w, item.h, item.shapeType === 'circle' ? item.w / 2 : 16);
+          oCtx.fill();
+        }
+        if (item.text) {
+          oCtx.fillStyle = '#1e293b';
+          oCtx.font = item.type === 'text' ? 'bold 24px sans-serif' : '500 15px sans-serif';
+          const lines = item.text.split('\n');
+          lines.forEach((line, idx) => {
+            oCtx.fillText(line, rx + 20, ry + 45 + idx * 24);
+          });
+        }
+      });
+
+      const link = document.createElement('a');
+      link.download = `${document.getElementById('board-title').value || '無邊記'}.png`;
+      link.href = outCanvas.toDataURL('image/png');
+      link.click();
+      showToast('已匯出 PNG 畫布圖片');
+    });
+
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', (e) => {
+      const isEditingText = document.activeElement && (document.activeElement.isContentEditable || document.activeElement.tagName === 'INPUT');
+      if (isEditingText) return;
+
+      if (e.code === 'Space') {
+        state.isSpacePressed = true;
+        viewport.style.cursor = 'grab';
+      } else if (e.key === 'Backspace' || e.key === 'Delete') {
+        deleteSelectedItem();
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        document.getElementById('btn-undo').click();
+      } else if (e.key.toLowerCase() === 'v') setTool('select');
+      else if (e.key.toLowerCase() === 'h') setTool('hand');
+      else if (e.key.toLowerCase() === 's') setTool('note');
+      else if (e.key.toLowerCase() === 't') setTool('text');
+      else if (e.key.toLowerCase() === 'r') setTool('shape');
+      else if (e.key.toLowerCase() === 'p') setTool('pen');
+      else if (e.key.toLowerCase() === 'e') setTool('eraser');
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        state.isSpacePressed = false;
+        viewport.style.cursor = state.tool === 'hand' ? 'grab' : 'default';
+      }
+    });
+
+    // --- Seed Initial Freeform Board Content ---
+    function initBoard() {
+      updateWorldTransform();
+
+      createItem('text', WORLD_OFFSET - 320, WORLD_OFFSET - 230, {
+        w: 480,
+        h: 60,
+        text: '✨ 歡迎使用「無邊記 Freeform」靈感白板'
+      });
+
+      createItem('note', WORLD_OFFSET - 320, WORLD_OFFSET - 140, {
+        w: 230,
+        h: 220,
+        color: '#fef08a',
+        text: '📌 快速上手指南：\n1. 拖曳空白處或按住空白鍵平移畫布\n2. 使用滾輪自由縮放視角\n3. 點擊上方工具列新增便條紙、圖形或塗鴉'
+      });
+
+      createItem('note', WORLD_OFFSET - 50, WORLD_OFFSET - 140, {
+        w: 230,
+        h: 220,
+        color: '#fecdd3',
+        text: '💡 專案腦力激盪：\n• 視覺化產品架構\n• 收集設計靈感照片\n• 隨時手繪草圖與連線'
+      });
+
+      createItem('shape', WORLD_OFFSET + 220, WORLD_OFFSET - 110, {
+        w: 170,
+        h: 160,
+        color: '#bae6fd',
+        shapeType: 'circle',
+        text: '核心目標 🎯\n自由無限創作'
+      });
+
+      // Draw a subtle decorative arrow on the canvas connecting the note and circle
+      ctx.strokeStyle = '#64748b';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(WORLD_OFFSET + 190, WORLD_OFFSET - 30);
+      ctx.quadraticCurveTo(WORLD_OFFSET + 205, WORLD_OFFSET - 50, WORLD_OFFSET + 215, WORLD_OFFSET - 35);
+      ctx.stroke();
+
+      selectItem(null);
+      saveHistory();
+    }
+
+    window.onload = initBoard;
+  </script>
+</body>
+</html>
